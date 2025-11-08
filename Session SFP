@@ -2,6 +2,7 @@
 // -----------------------------------------------------------------------------
 // Title:   Multi-Timeframe SFP (Weekly/Daily Levels)
 // Author:  Nick (Modified)
+// Change:  Applied all UI/UX updates from previous script.
 // -----------------------------------------------------------------------------
 
 import TradingView/ta/6 as ta
@@ -13,6 +14,9 @@ indicator('Dynamic Level SFP Engine (Simplified)', 'Weekly SFP 4H', overlay=true
 // =============================================================================
 
 string GRP_MASTER = "Master Switches"
+// MODIFICATION: Added new input for 'x' markers
+showPivotMarkers = input.bool(true, "Show 'x' Level Markers", group = GRP_MASTER, 
+ tooltip="Toggles the 'x' markers on the 'Level Timeframe' highs/lows.")
 showSfpLines = input.bool(true, "Show SFP Lines", group = GRP_MASTER,
   tooltip="Toggles the horizontal line drawn from the level price to the SFP candle.")
 showSfpCandleBox = input.bool(true, "Show SFP Box", group = GRP_MASTER,
@@ -39,22 +43,32 @@ minWickPercent = input.float(40.0, "Min. Wick %", group = GRP_SFP_TF, minval = 0
   tooltip="The rejection wick (e.g., upper wick for a bearish SFP) must be at least this percentage of the *entire* SFP bar's range (High to Low).")
 
 string GRP_COLORS = "4. Colors"
-phColor = input.color(color.red, "Bearish SFP Color", group = GRP_COLORS,
-  tooltip="Sets the color for bearish levels, lines, and labels.")
-plColor = input.color(color.green, "Bullish SFP Color", group = GRP_COLORS,
-  tooltip="Sets the color for bullish levels, lines, and labels.")
+// MODIFICATION: Renamed, set 75% transparency, updated tooltip
+bearLabelColor = input.color(color.new(color.red, 75), "Bearish SFP Label Color", group = GRP_COLORS,
+  tooltip="Sets the color for bearish SFP labels and level markers.")
+// MODIFICATION: Renamed, set 75% transparency, updated tooltip
+bullLabelColor = input.color(color.new(color.green, 75), "Bullish SFP Label Color", group = GRP_COLORS,
+  tooltip="Sets the color for bullish SFP labels and level markers.")
+
+// MODIFICATION: Added new input for Bearish Line Color
+bearLineColor = input.color(color.new(color.red, 75), "Bearish SFP Line Color", group = GRP_COLORS,
+ tooltip="Sets the color for the horizontal line on bearish SFPs.")
+// MODIFICATION: Added new input for Bullish Line Color
+bullLineColor = input.color(color.new(color.green, 75), "Bullish SFP Line Color", group = GRP_COLORS,
+ tooltip="Sets the color for the horizontal line on bullish SFPs.")
 
 bearLabelTextColor = input.color(color.white, "Bearish Label Text", group = GRP_COLORS,
   tooltip="Sets the text color for bearish SFP labels.")
 bullLabelTextColor = input.color(color.white, "Bullish Label Text", group = GRP_COLORS,
   tooltip="Sets the text color for bullish SFP labels.")
 
-bearSfpBarBoxColor = input.color(color.new(color.red, 80), "SFP Box (Bear/Bull)", group = GRP_COLORS, inline="sfpBoxColors",
+// MODIFICATION: Separated box color inputs
+bearSfpBarBoxColor = input.color(color.new(color.red, 80), "SFP Box Bearish", group = GRP_COLORS,
   tooltip="Sets the background color for the main SFP bar box.")
-bullSfpBarBoxColor = input.color(color.new(color.green, 80), "", group = GRP_COLORS, inline="sfpBoxColors")
-bearConfBoxColor = input.color(color.new(color.red, 80), "Conf. Box (Bear/Bull)", group = GRP_COLORS, inline="confBoxColors",
+bullSfpBarBoxColor = input.color(color.new(color.green, 80), "SFP Box Bullish", group = GRP_COLORS)
+bearConfBoxColor = input.color(color.new(color.red, 80), "Conf. Box Bearish", group = GRP_COLORS,
   tooltip="Sets the background color for confirmation bar boxes.")
-bullConfBoxColor = input.color(color.new(color.green, 80), "", group = GRP_COLORS, inline="confBoxColors")
+bullConfBoxColor = input.color(color.new(color.green, 80), "Conf. Box Bullish", group = GRP_COLORS)
 
 
 // =============================================================================
@@ -206,13 +220,17 @@ if is_new_pivot_bar
     if not na(p_h)
         array.push(sfp_pivot_high_prices, p_h), array.push(sfp_pivot_high_times, p_ht)
         array.push(sfp_pivot_high_age, pivot_tf_bar_counter), array.push(sfp_pivot_high_remove_flags, false)
-        label.new(p_ht, p_h, style=label.style_xcross, xloc=xloc.bar_time, color=phColor, size=size.tiny)
+        // MODIFICATION: Added showPivotMarkers check, yOffset, and bearLabelColor
+        if showPivotMarkers
+            label.new(p_ht, p_h + yOffset, style=label.style_xcross, xloc=xloc.bar_time, color=bearLabelColor, size=size.tiny)
 
     // --- Add the low of the COMPLETED previous bar ---
     if not na(p_l)
         array.push(sfp_pivot_low_prices, p_l), array.push(sfp_pivot_low_times, p_lt)
         array.push(sfp_pivot_low_age, pivot_tf_bar_counter), array.push(sfp_pivot_low_remove_flags, false)
-        label.new(p_lt, p_l, style=label.style_xcross, xloc=xloc.bar_time, color=plColor, size=size.tiny)
+        // MODIFICATION: Added showPivotMarkers check, yOffset, and bullLabelColor
+        if showPivotMarkers
+            label.new(p_lt, p_l - yOffset, style=label.style_xcross, xloc=xloc.bar_time, color=bullLabelColor, size=size.tiny)
 
 // --- Manage array sizes based on lookbackPeriod ---
     while array.size(sfp_pivot_high_age) > 0 and (pivot_tf_bar_counter - array.get(sfp_pivot_high_age, 0)) > lookbackPeriod
@@ -256,8 +274,10 @@ if is_new_sfp_bar and not na(sfp_c)
                 if wickCheckPassed
                     if isChartTF_LTE_sfpTF
                         if showSfpLines
-                            line.new(bearSfp_lockedPivotTime, bearSfp_lockedPivotPrice, bearSfp_sfpChartBarTime, bearSfp_lockedPivotPrice, xloc=xloc.bar_time, color=phColor, width=2, style=line.style_solid)
-                        label.new(bearSfp_sfpExtremeHighTime, bearSfp_sfpExtremeHighPrice + yOffset, text=bearLabelText, style=label.style_label_down, color=phColor, textcolor=bearLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
+                            // MODIFICATION: Use bearLineColor
+                            line.new(bearSfp_lockedPivotTime, bearSfp_lockedPivotPrice, bearSfp_sfpChartBarTime, bearSfp_lockedPivotPrice, xloc=xloc.bar_time, color=bearLineColor, width=2, style=line.style_solid)
+                        // MODIFICATION: Use bearLabelColor
+                        label.new(bearSfp_sfpExtremeHighTime, bearSfp_sfpExtremeHighPrice + yOffset, text=bearLabelText, style=label.style_label_down, color=bearLabelColor, textcolor=bearLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
                     
                     if enableSfpAlerts
                         alert(bearLabelText, alert.freq_once_per_bar_close)
@@ -285,8 +305,10 @@ if is_new_sfp_bar and not na(sfp_c)
                     if wickCheckPassed
                         if isChartTF_LTE_sfpTF
                             if showSfpLines
-                                line.new(pivot_time, pivot_price, chartBarTimeToUse, pivot_price, xloc=xloc.bar_time, color=phColor, width=2, style=line.style_solid)
-                            label.new(sfp_ht_extreme_chart, sfp_h + yOffset, text=bearLabelText, style=label.style_label_down, color=phColor, textcolor=bearLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
+                                // MODIFICATION: Use bearLineColor
+                                line.new(pivot_time, pivot_price, chartBarTimeToUse, pivot_price, xloc=xloc.bar_time, color=bearLineColor, width=2, style=line.style_solid)
+                            // MODIFICATION: Use bearLabelColor
+                            label.new(sfp_ht_extreme_chart, sfp_h + yOffset, text=bearLabelText, style=label.style_label_down, color=bearLabelColor, textcolor=bearLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
                             
                             if showSfpCandleBox and isChartTF_LT_sfpTF
                                 box.new(sfp_ht, sfp_h, sfp_ht + sfpTfMs - chartTfMs, sfp_l,
@@ -350,8 +372,10 @@ if is_new_sfp_bar and not na(sfp_c)
                 if wickCheckPassed
                     if isChartTF_LTE_sfpTF
                         if showSfpLines
-                            line.new(bullSfp_lockedPivotTime, bullSfp_lockedPivotPrice, bullSfp_sfpChartBarTime, bullSfp_lockedPivotPrice, xloc=xloc.bar_time, color=plColor, width=2, style=line.style_solid)
-                        label.new(bullSfp_sfpExtremeLowTime, bullSfp_sfpExtremeLowPrice - yOffset, text=bullLabelText, style=label.style_label_up, color=plColor, textcolor=bullLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
+                            // MODIFICATION: Use bullLineColor
+                            line.new(bullSfp_lockedPivotTime, bullSfp_lockedPivotPrice, bullSfp_sfpChartBarTime, bullSfp_lockedPivotPrice, xloc=xloc.bar_time, color=bullLineColor, width=2, style=line.style_solid)
+                        // MODIFICATION: Use bullLabelColor
+                        label.new(bullSfp_sfpExtremeLowTime, bullSfp_sfpExtremeLowPrice - yOffset, text=bullLabelText, style=label.style_label_up, color=bullLabelColor, textcolor=bullLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
 
                     if enableSfpAlerts
                         alert(bullLabelText, alert.freq_once_per_bar_close)
@@ -379,8 +403,10 @@ if is_new_sfp_bar and not na(sfp_c)
                     if wickCheckPassed
                         if isChartTF_LTE_sfpTF
                             if showSfpLines
-                                line.new(pivot_time, pivot_price, chartBarTimeToUse, pivot_price, xloc=xloc.bar_time, color=plColor, width=2, style=line.style_solid)
-                            label.new(sfp_lt_extreme_chart, sfp_l - yOffset, text=bullLabelText, style=label.style_label_up, color=plColor, textcolor=bullLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
+                                // MODIFICATION: Use bullLineColor
+                                line.new(pivot_time, pivot_price, chartBarTimeToUse, pivot_price, xloc=xloc.bar_time, color=bullLineColor, width=2, style=line.style_solid)
+                            // MODIFICATION: Use bullLabelColor
+                            label.new(sfp_lt_extreme_chart, sfp_l - yOffset, text=bullLabelText, style=label.style_label_up, color=bullLabelColor, textcolor=bullLabelTextColor, xloc=xloc.bar_time, yloc=yloc.price, size=size.normal, textalign=text.align_left)
                             
                             if showSfpCandleBox and isChartTF_LT_sfpTF
                                 box.new(sfp_lt, sfp_h, sfp_lt + sfpTfMs - chartTfMs, sfp_l,
