@@ -5,6 +5,7 @@
 // REFACTOR: Converted state machine to use arrays to track multiple pending SFPs.
 // FIX 7:   Corrected 'type' definition error.
 // FIX 8:   Set default colors to be non-transparent (0% transparency).
+// ADD:     Added warning box if Chart TF > SFP TF, which disables visuals.
 // -----------------------------------------------------------------------------
 
 import TradingView/ta/6 as ta
@@ -124,10 +125,16 @@ bool isHistoryCollectionActive = pivotTimeframe != '' and sfpTimeframe != ''
 bool is_new_pivot_bar = isHistoryCollectionActive and nz(ta.change(time(pivotTimeframe))) != 0
 bool is_new_sfp_bar = isHistoryCollectionActive and nz(ta.change(time(sfpTimeframe))) != 0
 var int pivot_tf_bar_counter = 0
-bool isChartTF_LTE_sfpTF = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds(sfpTimeframe)
-bool isChartTF_LT_sfpTF = timeframe.in_seconds(timeframe.period) < timeframe.in_seconds(sfpTimeframe)
-int sfpTfMs = timeframe.in_seconds(sfpTimeframe) * 1000
-int chartTfMs = timeframe.in_seconds(timeframe.period) * 1000
+
+// --- NEW Timeframe Checks ---
+int chartSecs = timeframe.in_seconds(timeframe.period)
+int sfpTfSecs = timeframe.in_seconds(sfpTimeframe)
+bool isChartTF_LTE_sfpTF = chartSecs <= sfpTfSecs
+bool isChartTF_LT_sfpTF = chartSecs < sfpTfSecs
+bool isChartTF_GT_sfpTF = chartSecs > sfpTfSecs  // Check for visuals warning
+
+int sfpTfMs = sfpTfSecs * 1000
+int chartTfMs = chartSecs * 1000
 
 // --- Level Storage ---
 var array<float> sfp_pivot_high_prices = array.new_float()
@@ -469,3 +476,18 @@ if is_new_sfp_bar and not na(sfp_c)
             if array.get(sfp_pivot_low_remove_flags, i)
                 array.remove(sfp_pivot_low_prices, i), array.remove(sfp_pivot_low_times, i)
                 array.remove(sfp_pivot_low_age, i), array.remove(sfp_pivot_low_remove_flags, i)
+
+// =============================================================================
+// WARNING LABELS
+// =============================================================================
+
+// --- NEW VISUALS WARNING LABEL ---
+if barstate.islast and isChartTF_GT_sfpTF
+    var table visualsWarningTable = table.new(position.middle_center, 1, 1, border_width = 2, border_color = color.red) 
+    
+    string chartTfWarningStr_viz = formatTimeframe(timeframe.period)
+    string sfpTfWarningStr_viz = formatTimeframe(sfpTimeframe)
+    
+    table.cell(visualsWarningTable, 0, 0, 
+     " SFP VISUALS DISABLED \n\n Chart Timeframe (" + chartTfWarningStr_viz + ") \n is higher than the SFP Timeframe (" + sfpTfWarningStr_viz + "). \n\n Please set the chart to " + sfpTfWarningStr_viz + " or lower. ",
+     bgcolor = color.new(color.red, 80), text_color = color.white, text_size = size.large)
