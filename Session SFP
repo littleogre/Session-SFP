@@ -7,8 +7,13 @@
 // FIX 8:   Set default colors to be non-transparent (0% transparency).
 // ADD:     Added warning box if Chart TF > SFP TF, which disables visuals.
 // OPTIMIZE: Removed redundant wick checks in the pending loops.
-// FIX 9:   Fixed Wick Filter logic. If a level is broken but fails wick check, 
-//          the level is now invalidated immediately instead of waiting for a later candle.
+// FIX 9:   Fixed Wick Filter logic. Levels are now invalidated immediately on breach.
+// UPDATE:  Adjusted default inputs (D/4H/Wick On/Transparent Boxes/Lookback 2).
+// UPDATE:  Added text labels ("SFP", "C1", "C2"...) to boxes.
+// UPDATE:  Set box text to Small and Top-Center alignment.
+// UPDATE:  Added separate inputs for Box Border Colors.
+// UPDATE:  Disabled box deletion for CONFIRMED SFPs (history remains visible).
+// UPDATE:  Adjusted colors to Soft Red / Teal Green with 10% Opacity (90 Transparency).
 // -----------------------------------------------------------------------------
 
 import TradingView/ta/6 as ta
@@ -25,32 +30,44 @@ showSfpLines = input.bool(true, "Show SFP Lines", group = GRP_MASTER, tooltip="T
 showSfpCandleBox = input.bool(true, "Show SFP Box", group = GRP_MASTER, tooltip="Toggles the background box for the SFP bar. NOTE: This box is only visible when the chart timeframe is *lower* than the 'SFP Timeframe'.")
 showConfirmationBoxes = input.bool(true, "Show Conf. Boxes", group = GRP_MASTER, tooltip="Toggles the background boxes for the confirmation bars. NOTE: These boxes are only visible when the chart timeframe is *lower* than the 'SFP Timeframe'.")
 enableSfpAlerts = input.bool(true, "Enable Alerts", group = GRP_MASTER, tooltip="Enables an alert to fire once an SFP is fully confirmed (after the 'Confirmation Bars' have passed).")
-lookbackPeriod = input.int(10, "Level Lookback", group = GRP_MASTER, minval = 1, tooltip="The maximum age, in 'Level Timeframe' bars, that a high/low level is considered valid. A level older than this will be ignored (e.g., 10 with a 'W' timeframe means look back at the last 10 weekly levels).")
+lookbackPeriod = input.int(2, "Level Lookback", group = GRP_MASTER, minval = 1, tooltip="The maximum age, in 'Level Timeframe' bars, that a high/low level is considered valid. A level older than this will be ignored.")
 
 string GRP_PIVOT_TF = "1. Level Detection"
-pivotTimeframe = input.timeframe('W', "Level Timeframe", group = GRP_PIVOT_TF, tooltip="The timeframe used to find the major highs and lows (e.g., 'W' for weekly levels). This is the 'liquidity' level the SFP will target.")
+pivotTimeframe = input.timeframe('D', "Level Timeframe", group = GRP_PIVOT_TF, tooltip="The timeframe used to find the major highs and lows (e.g., 'W' for weekly levels). This is the 'liquidity' level the SFP will target.")
 
 string GRP_SFP_TF = "2. SFP Identification"
 sfpTimeframe = input.timeframe('240', "SFP Timeframe", group = GRP_SFP_TF, tooltip="The timeframe used to find the Swing Failure Pattern (SFP) candle and to count confirmation bars.")
 sfpValidationWindow = input.int(3, "Confirmation Bars", group = GRP_SFP_TF, minval = 0, tooltip="The number of SFP TF bars *after* the SFP bar without invalidating the level. '0' confirms immediately on the SFP bar's close.")
-enableWickCheck = input.bool(false, "Enable Wick % Filter", group = GRP_SFP_TF, tooltip="If checked, the SFP candle will only be considered valid if its rejection wick meets the minimum percentage requirement.")
+enableWickCheck = input.bool(true, "Enable Wick % Filter", group = GRP_SFP_TF, tooltip="If checked, the SFP candle will only be considered valid if its rejection wick meets the minimum percentage requirement.")
 minWickPercent = input.float(40.0, "Min. Wick %", group = GRP_SFP_TF, minval = 0.1, maxval = 100.0, step = 0.1, tooltip="The rejection wick (e.g., upper wick for a bearish SFP) must be at least this percentage of the *entire* SFP bar's range (High to Low).")
 
 string GRP_COLORS = "4. Colors"
-bearLabelColor = input.color(color.red, "Bearish SFP Label Color", group = GRP_COLORS, tooltip="Sets the color for bearish SFP labels and level markers.")
-bullLabelColor = input.color(color.green, "Bullish SFP Label Color", group = GRP_COLORS, tooltip="Sets the color for bullish SFP labels and level markers.")
+// Define custom colors
+color col_bear_soft = #EF5350 // Softer Red
+color col_bull_teal = #26A69A // Blueish Green (Teal)
 
-bearLineColor = input.color(color.red, "Bearish SFP Line Color", group = GRP_COLORS, tooltip="Sets the color for the horizontal line on bearish SFPs.")
-bullLineColor = input.color(color.green, "Bullish SFP Line Color", group = GRP_COLORS, tooltip="Sets the color for the horizontal line on bullish SFPs.")
+bearLabelColor = input.color(col_bear_soft, "Bearish SFP Label Color", group = GRP_COLORS, tooltip="Sets the color for bearish SFP labels and level markers.")
+bullLabelColor = input.color(col_bull_teal, "Bullish SFP Label Color", group = GRP_COLORS, tooltip="Sets the color for bullish SFP labels and level markers.")
+
+bearLineColor = input.color(col_bear_soft, "Bearish SFP Line Color", group = GRP_COLORS, tooltip="Sets the color for the horizontal line on bearish SFPs.")
+bullLineColor = input.color(col_bull_teal, "Bullish SFP Line Color", group = GRP_COLORS, tooltip="Sets the color for the horizontal line on bullish SFPs.")
 
 bearLabelTextColor = input.color(color.white, "Bearish Label Text", group = GRP_COLORS, tooltip="Sets the text color for bearish SFP labels.")
 bullLabelTextColor = input.color(color.white, "Bullish Label Text", group = GRP_COLORS, tooltip="Sets the text color for bullish SFP labels.")
 
-bearSfpBarBoxColor = input.color(color.red, "SFP Box Bearish", group = GRP_COLORS, tooltip="Sets the background color for the main SFP bar box.")
-bullSfpBarBoxColor = input.color(color.green, "SFP Box Bullish", group = GRP_COLORS)
+// --- Box Fills (Updated to 90 Transparency / 10% Opacity) ---
+bearSfpBarBoxColor = input.color(color.new(col_bear_soft, 90), "SFP Box Fill (Bear)", group = GRP_COLORS, tooltip="Sets the background color for the main SFP bar box.")
+bullSfpBarBoxColor = input.color(color.new(col_bull_teal, 90), "SFP Box Fill (Bull)", group = GRP_COLORS)
 
-bearConfBoxColor = input.color(color.red, "Conf. Box Bearish", group = GRP_COLORS, tooltip="Sets the background color for confirmation bar boxes.")
-bullConfBoxColor = input.color(color.green, "Conf. Box Bullish", group = GRP_COLORS)
+bearConfBoxColor = input.color(color.new(col_bear_soft, 90), "Conf. Box Fill (Bear)", group = GRP_COLORS, tooltip="Sets the background color for confirmation bar boxes.")
+bullConfBoxColor = input.color(color.new(col_bull_teal, 90), "Conf. Box Fill (Bull)", group = GRP_COLORS)
+
+// --- Box Borders ---
+bearSfpBorderColor = input.color(col_bear_soft, "SFP Box Border (Bear)", group = GRP_COLORS, tooltip="Sets the border color/transparency for the SFP box.")
+bullSfpBorderColor = input.color(col_bull_teal, "SFP Box Border (Bull)", group = GRP_COLORS)
+
+bearConfBorderColor = input.color(col_bear_soft, "Conf. Box Border (Bear)", group = GRP_COLORS, tooltip="Sets the border color/transparency for the confirmation boxes.")
+bullConfBorderColor = input.color(col_bull_teal, "Conf. Box Border (Bull)", group = GRP_COLORS)
 
 // =============================================================================
 // FUNCTIONS
@@ -232,6 +249,7 @@ if is_new_sfp_bar and not na(sfp_c)
 
             // A. Check for Invalidation (if price closes back above the level)
             if sfp_c >= pendingSFP.lockedPivotPrice
+                // SFP FAILED: Delete boxes to clean up chart
                 box.delete(pendingSFP.sfpBox)
                 for confBox in pendingSFP.confBoxes
                     box.delete(confBox)
@@ -244,7 +262,9 @@ if is_new_sfp_bar and not na(sfp_c)
             // Draw confirmation boxes if enabled
             if showConfirmationBoxes and isChartTF_LT_sfpTF and pendingSFP.barCounter >= 1 and pendingSFP.barCounter <= sfpValidationWindow and not na(sfp_h)
                 box confBox = box.new(sfp_ht, sfp_h, sfp_ht + sfpTfMs - chartTfMs, sfp_l,
-                     bgcolor = bearConfBoxColor, border_color = color(na), xloc = xloc.bar_time)
+                     bgcolor = bearConfBoxColor, border_color = bearConfBorderColor, xloc = xloc.bar_time,
+                     text = "C" + str.tostring(pendingSFP.barCounter), text_color = bearLabelTextColor,
+                     text_size = size.small, text_halign = text.align_center, text_valign = text.align_top)
                 array.push(pendingSFP.confBoxes, confBox)
             
             // C. Check for Final Confirmation (if counter is high enough)
@@ -258,10 +278,8 @@ if is_new_sfp_bar and not na(sfp_c)
                 if enableSfpAlerts
                     alert(bearLabelText, alert.freq_once_per_bar_close)
                 
-                // SFP is done, clean up boxes and remove from tracking
-                box.delete(pendingSFP.sfpBox)
-                for confBox in pendingSFP.confBoxes
-                    box.delete(confBox)
+                // SFP SUCCESS: We do NOT delete boxes here anymore.
+                // We only remove the object from the tracking array.
                 array.remove(pendingBearSFPs, i)
             
             else
@@ -295,7 +313,9 @@ if is_new_sfp_bar and not na(sfp_c)
                             
                             if showSfpCandleBox and isChartTF_LT_sfpTF
                                 box.new(sfp_ht, sfp_h, sfp_ht + sfpTfMs - chartTfMs, sfp_l,
-                                 bgcolor = bearSfpBarBoxColor, border_color = color(na), xloc = xloc.bar_time)
+                                 bgcolor = bearSfpBarBoxColor, border_color = bearSfpBorderColor, xloc = xloc.bar_time,
+                                 text = "SFP", text_color = bearLabelTextColor,
+                                 text_size = size.small, text_halign = text.align_center, text_valign = text.align_top)
                         
                         if enableSfpAlerts
                             alert(bearLabelText, alert.freq_once_per_bar_close)
@@ -316,7 +336,9 @@ if is_new_sfp_bar and not na(sfp_c)
                         
                         if showSfpCandleBox and isChartTF_LT_sfpTF
                             newPendingSFP.sfpBox := box.new(sfp_ht, sfp_h, sfp_ht + sfpTfMs - chartTfMs, sfp_l,
-                              bgcolor = bearSfpBarBoxColor, border_color = color(na), xloc = xloc.bar_time)
+                              bgcolor = bearSfpBarBoxColor, border_color = bearSfpBorderColor, xloc = xloc.bar_time,
+                              text = "SFP", text_color = bearLabelTextColor,
+                              text_size = size.small, text_halign = text.align_center, text_valign = text.align_top)
                         
                         array.push(pendingBearSFPs, newPendingSFP)
                 
@@ -346,6 +368,7 @@ if is_new_sfp_bar and not na(sfp_c)
 
             // A. Check for Invalidation
             if sfp_c <= pendingSFP.lockedPivotPrice
+                // SFP FAILED: Delete boxes to clean up chart
                 box.delete(pendingSFP.sfpBox)
                 for confBox in pendingSFP.confBoxes
                     box.delete(confBox)
@@ -357,7 +380,9 @@ if is_new_sfp_bar and not na(sfp_c)
             
             if showConfirmationBoxes and isChartTF_LT_sfpTF and pendingSFP.barCounter >= 1 and pendingSFP.barCounter <= sfpValidationWindow and not na(sfp_h)
                 box confBox = box.new(sfp_ht, sfp_h, sfp_ht + sfpTfMs - chartTfMs, sfp_l,
-                     bgcolor = bullConfBoxColor, border_color = color(na), xloc = xloc.bar_time)
+                     bgcolor = bullConfBoxColor, border_color = bullConfBorderColor, xloc = xloc.bar_time,
+                     text = "C" + str.tostring(pendingSFP.barCounter), text_color = bullLabelTextColor,
+                     text_size = size.small, text_halign = text.align_center, text_valign = text.align_top)
                 array.push(pendingSFP.confBoxes, confBox)
             
             // C. Check for Final Confirmation
@@ -371,9 +396,8 @@ if is_new_sfp_bar and not na(sfp_c)
                 if enableSfpAlerts
                     alert(bullLabelText, alert.freq_once_per_bar_close)
                 
-                box.delete(pendingSFP.sfpBox)
-                for confBox in pendingSFP.confBoxes
-                    box.delete(confBox)
+                // SFP SUCCESS: We do NOT delete boxes here anymore.
+                // We only remove the object from the tracking array.
                 array.remove(pendingBullSFPs, i)
             
             else
@@ -406,7 +430,9 @@ if is_new_sfp_bar and not na(sfp_c)
                             
                             if showSfpCandleBox and isChartTF_LT_sfpTF
                                 box.new(sfp_lt, sfp_h, sfp_lt + sfpTfMs - chartTfMs, sfp_l,
-                                 bgcolor = bullSfpBarBoxColor, border_color = color(na), xloc = xloc.bar_time)
+                                 bgcolor = bullSfpBarBoxColor, border_color = bullSfpBorderColor, xloc = xloc.bar_time,
+                                 text = "SFP", text_color = bullLabelTextColor,
+                                 text_size = size.small, text_halign = text.align_center, text_valign = text.align_top)
                         
                         if enableSfpAlerts
                             alert(bullLabelText, alert.freq_once_per_bar_close)
@@ -427,7 +453,9 @@ if is_new_sfp_bar and not na(sfp_c)
                         
                         if showSfpCandleBox and isChartTF_LT_sfpTF
                             newPendingSFP.sfpBox := box.new(sfp_lt, sfp_h, sfp_lt + sfpTfMs - chartTfMs, sfp_l,
-                              bgcolor = bullSfpBarBoxColor, border_color = color(na), xloc = xloc.bar_time)
+                              bgcolor = bullSfpBarBoxColor, border_color = bullSfpBorderColor, xloc = xloc.bar_time,
+                              text = "SFP", text_color = bullLabelTextColor,
+                              text_size = size.small, text_halign = text.align_center, text_valign = text.align_top)
                         
                         array.push(pendingBullSFPs, newPendingSFP)
                 
